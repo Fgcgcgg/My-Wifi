@@ -12,6 +12,6 @@ A Python-based tool for WiFi penetration testing and security research.
 ## Installation
 git clone https://github.com/localexpert000/My-Wifi.git
 
-cd wifi-hacking-tool
+cd My-Wifi
 
-sudo python3 wifi_hacker.py
+sudo python3 hackwifi.py
