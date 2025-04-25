@@ -11,5 +11,6 @@ A Python-based tool for WiFi penetration testing and security research.
 - Scapy, aircrack-ng
 ## Installation
 git clone https://github.com/yourusername/wifi-hacking-tool.git
+
 cd wifi-hacking-tool
 sudo python3 wifi_hacker.py
