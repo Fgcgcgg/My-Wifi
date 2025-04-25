@@ -52,7 +52,7 @@ class WiFiHackingTool:
                 # Check if we already have this AP
                 existing = next((ap for ap in self.access_points if ap['bssid'] == bssid), None)
                 
-                if not existing:
+                if not existing and ssid:
                     ap_info = {
                         'ssid': ssid,
                         'bssid': bssid,
@@ -63,7 +63,10 @@ class WiFiHackingTool:
 
         # Start sniffing
         sniff(iface=self.interface, prn=packet_handler, stop_filter=lambda x: not self.running)
-    
+
+        if not self.access_points:
+            print(f"{Fore.RED}[!] No access points found. Please ensure your wireless interface is in monitor mode and try again.{Style.RESET_ALL}")
+
     def select_interface(self):
         """Let user select a wireless interface"""
         print(f"{Fore.YELLOW}[*] Available wireless interfaces:{Style.RESET_ALL}")
@@ -245,5 +248,4 @@ if __name__ == "__main__":
     
     tool = WiFiHackingTool()
     tool.select_interface()
-    tool.scan_wifi()  # Automatically start scanning
     tool.main_menu()
