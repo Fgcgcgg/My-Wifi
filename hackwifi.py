@@ -25,7 +25,7 @@ class WiFiHackingTool:
         # Setup environment
         self.initialize_environment()
         
-        # Set up signal handler (moved after method definition)
+        # Set up signal handler
         self.signal_handler = self._signal_handler
         signal.signal(signal.SIGINT, self.signal_handler)
     
@@ -51,12 +51,35 @@ class WiFiHackingTool:
         # Remove previous capture file if exists
         if os.path.exists(self.capture_file):
             os.remove(self.capture_file)
-    
+
     def load_wordlists(self):
         """Load all wordlists from the wordlists directory"""
-        self.wordlists = [os.path.join(self.wordlists_dir, f) 
-                         for f in os.listdir(self.wordlists_dir) 
-                         if f.endswith('.txt')]
+        try:
+            self.wordlists = []
+            # Get absolute path to wordlists directory
+            wordlists_path = os.path.abspath(self.wordlists_dir)
+            
+            # Verify directory exists
+            if not os.path.isdir(wordlists_path):
+                print(f"{Fore.YELLOW}[!] Wordlists directory not found, creating...{Style.RESET_ALL}")
+                os.makedirs(wordlists_path)
+                return
+            
+            # Scan for .txt files
+            for f in os.listdir(wordlists_path):
+                if f.endswith('.txt'):
+                    full_path = os.path.join(wordlists_path, f)
+                    if os.path.isfile(full_path):
+                        self.wordlists.append(full_path)
+            
+            # Debug output
+            print(f"{Fore.CYAN}[*] Found {len(self.wordlists)} wordlists:{Style.RESET_ALL}")
+            for wl in self.wordlists:
+                print(f"- {os.path.basename(wl)}")
+                
+        except Exception as e:
+            print(f"{Fore.RED}[!] Error loading wordlists: {e}{Style.RESET_ALL}")
+            self.wordlists = []
     
     def display_ap_table(self):
         """Display access points in a formatted table"""
@@ -287,6 +310,58 @@ class WiFiHackingTool:
             self.deauth_running = False
             print(f"\n{Fore.GREEN}[+] Attack stopped{Style.RESET_ALL}")
     
+    def select_single_ap(self):
+        """Select a single AP from the scanned list"""
+        while True:
+            try:
+                choice = int(input("\nEnter target number: "))
+                if 1 <= choice <= len(self.access_points):
+                    return self.access_points[choice-1]
+                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
+
+    def select_wordlist(self):
+        """Let user select a wordlist"""
+        print(f"\n{Fore.YELLOW}Available wordlists:{Style.RESET_ALL}")
+        for i, wl in enumerate(self.wordlists):
+            print(f"{i+1}. {os.path.basename(wl)}")
+        
+        while True:
+            try:
+                choice = input("\nSelect wordlist (number) or 'r' to refresh: ").strip().lower()
+                
+                if choice == 'r':
+                    self.load_wordlists()
+                    if not self.wordlists:
+                        return None
+                    print(f"\n{Fore.YELLOW}Available wordlists:{Style.RESET_ALL}")
+                    for i, wl in enumerate(self.wordlists):
+                        print(f"{i+1}. {os.path.basename(wl)}")
+                    continue
+                    
+                choice = int(choice)
+                if 1 <= choice <= len(self.wordlists):
+                    return self.wordlists[choice-1]
+                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
+            except ValueError:
+                print(f"{Fore.RED}[!] Enter a number or 'r'{Style.RESET_ALL}")
+
+    def run_cracking_process(self, target, wordlist):
+        """Run the password cracking simulation"""
+        print(f"\n{Fore.RED}[!] Cracking password for {target['ssid']}...{Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}Using wordlist: {os.path.basename(wordlist)}{Style.RESET_ALL}")
+        
+        # Simulate cracking progress
+        for i in range(1, 101):
+            time.sleep(0.1)
+            sys.stdout.write(f"\rProgress: [{'#'*(i//5)}{' '*(20-i//5)}] {i}%")
+            sys.stdout.flush()
+        
+        # Show result
+        print(f"\n\n{Fore.GREEN}[+] Password found: 'password123'{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}[+] Key: 12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF{Style.RESET_ALL}")
+
     def crack_password(self):
         """Crack WiFi password"""
         if not self.access_points:
@@ -297,53 +372,29 @@ class WiFiHackingTool:
         print(f"\n{Fore.YELLOW}Select target to crack:{Style.RESET_ALL}")
         
         # Select target
-        while True:
-            try:
-                choice = int(input("\nEnter target number: "))
-                if 1 <= choice <= len(self.access_points):
-                    target = self.access_points[choice-1]
-                    break
-                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
+        target = self.select_single_ap()
+        if not target:
+            return
         
         # Capture handshake
         if not self.capture_handshake(target):
             return
         
-        # Select wordlist
+        # Refresh wordlists
+        self.load_wordlists()
+        
         if not self.wordlists:
-            print(f"{Fore.RED}[!] No wordlists available{Style.RESET_ALL}")
+            print(f"{Fore.RED}[!] No wordlists available in {os.path.abspath(self.wordlists_dir)}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Please add .txt wordlist files to the directory.{Style.RESET_ALL}")
             return
         
-        print(f"\n{Fore.YELLOW}Available wordlists:{Style.RESET_ALL}")
-        for i, wl in enumerate(self.wordlists):
-            print(f"{i+1}. {os.path.basename(wl)}")
+        # Select wordlist
+        wordlist = self.select_wordlist()
+        if not wordlist:
+            return
         
-        while True:
-            try:
-                choice = int(input("\nSelect wordlist: "))
-                if 1 <= choice <= len(self.wordlists):
-                    wordlist = self.wordlists[choice-1]
-                    break
-                print(f"{Fore.RED}[!] Invalid selection{Style.RESET_ALL}")
-            except ValueError:
-                print(f"{Fore.RED}[!] Enter a number{Style.RESET_ALL}")
-        
-        # Simulate cracking
-        print(f"\n{Fore.RED}[!] Cracking password...{Style.RESET_ALL}")
-        
-        # In real usage:
-        # subprocess.run(['sudo', 'aircrack-ng', self.capture_file, '-w', wordlist])
-        
-        for i in range(1, 101):
-            time.sleep(0.1)
-            sys.stdout.write(f"\rProgress: [{'#'*(i//5)}{' '*(20-i//5)}] {i}%")
-            sys.stdout.flush()
-        
-        # Show result
-        print(f"\n\n{Fore.GREEN}[+] Password found: 'password123'{Style.RESET_ALL}")
-        print(f"{Fore.GREEN}[+] Key: 12:34:56:78:90:AB:CD:EF:12:34:56:78:90:AB:CD:EF{Style.RESET_ALL}")
+        # Run cracking process
+        self.run_cracking_process(target, wordlist)
     
     def capture_handshake(self, ap):
         """Simulate handshake capture"""
