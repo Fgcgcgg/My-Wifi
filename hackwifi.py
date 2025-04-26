@@ -44,6 +44,22 @@ class WiFiHackingTool:
                          for f in os.listdir(self.wordlists_dir) 
                          if f.endswith('.txt')]
     
+    def display_ap_table(self):
+        """Display access points in a formatted table"""
+        if not self.access_points:
+            print(f"{Fore.RED}[!] No access points found{Style.RESET_ALL}")
+            return
+        
+        table = PrettyTable()
+        table.field_names = ["#", "SSID", "BSSID", "Channel"]
+        table.align = "l"
+        table.border = True
+        
+        for i, ap in enumerate(self.access_points):
+            table.add_row([i+1, ap['ssid'], ap['bssid'], ap['channel']])
+        
+        print(table)
+    
     def reset_interface(self):
         """Reset interface to managed mode"""
         if self.interface:
@@ -53,8 +69,11 @@ class WiFiHackingTool:
                 subprocess.run(['sudo', 'iwconfig', self.interface, 'mode', 'managed'], check=False)
                 subprocess.run(['sudo', 'ifconfig', self.interface, 'up'], check=False)
                 print(f"{Fore.GREEN}[+] Interface {self.interface} reset to managed mode{Style.RESET_ALL}")
+                return True
             except Exception as e:
                 print(f"{Fore.RED}[!] Error resetting interface: {e}{Style.RESET_ALL}")
+                return False
+        return True
     
     def get_available_interfaces(self):
         """Get list of available wireless interfaces"""
@@ -73,46 +92,6 @@ class WiFiHackingTool:
             print(f"{Fore.RED}[!] Error detecting interfaces: {e}{Style.RESET_ALL}")
         
         return interfaces
-    
-    def scan_wifi(self):
-        """Scan for available WiFi networks"""
-        print(f"\n{Fore.CYAN}[*] Scanning for WiFi networks (Press Ctrl+C to stop)...{Style.RESET_ALL}")
-        
-        # Clear previous results
-        self.access_points = []
-        start_time = time.time()
-        
-        def packet_handler(pkt):
-            if pkt.haslayer(Dot11Beacon):
-                ssid = pkt[Dot11Elt].info.decode()
-                bssid = pkt[Dot11].addr2
-                channel = int(ord(pkt[Dot11Elt:3].info))
-                
-                if not any(ap['bssid'] == bssid for ap in self.access_points):
-                    self.access_points.append({
-                        'ssid': ssid,
-                        'bssid': bssid,
-                        'channel': channel
-                    })
-        
-        # Start scanning in background
-        sniff_thread = Thread(target=sniff, kwargs={
-            'iface': self.interface,
-            'prn': packet_handler,
-            'stop_filter': lambda x: not self.running
-        })
-        sniff_thread.start()
-        
-        # Display real-time results
-        while self.running:
-            self.display_ap_table()
-            print(f"\n{Fore.YELLOW}Scanning for {int(time.time()-start_time)}s... Ctrl+C to stop{Style.RESET_ALL}")
-            time.sleep(1)
-            os.system('clear')
-        
-        sniff_thread.join()
-        self.display_ap_table()
-        self.attack_menu()
     
     def select_interface(self):
         """Select and configure wireless interface"""
@@ -168,20 +147,47 @@ class WiFiHackingTool:
         
         print(f"{Fore.GREEN}[+] {self.interface} ready in monitor mode{Style.RESET_ALL}")
     
-    def signal_handler(self, sig, frame):
-        """Handle interrupt signals"""
-        if self.running:
-            print(f"\n{Fore.YELLOW}[*] Stopping scan...{Style.RESET_ALL}")
-            self.running = False
-        elif self.deauth_running:
-            print(f"\n{Fore.YELLOW}[*] Stopping attack...{Style.RESET_ALL}")
-            self.deauth_running = False
-        else:
-            self.reset_interface()
-            print(f"\n{Fore.GREEN}[+] Exiting{Style.RESET_ALL}")
-            sys.exit(0)
-
-    # [Rest of your existing methods remain unchanged...]
+    def scan_wifi(self):
+        """Scan for available WiFi networks"""
+        print(f"\n{Fore.CYAN}[*] Scanning for WiFi networks (Press Ctrl+C to stop)...{Style.RESET_ALL}")
+        
+        # Clear previous results
+        self.access_points = []
+        start_time = time.time()
+        
+        def packet_handler(pkt):
+            if pkt.haslayer(Dot11Beacon):
+                ssid = pkt[Dot11Elt].info.decode()
+                bssid = pkt[Dot11].addr2
+                channel = int(ord(pkt[Dot11Elt:3].info))
+                
+                if not any(ap['bssid'] == bssid for ap in self.access_points):
+                    self.access_points.append({
+                        'ssid': ssid,
+                        'bssid': bssid,
+                        'channel': channel
+                    })
+        
+        # Start scanning in background
+        sniff_thread = Thread(target=sniff, kwargs={
+            'iface': self.interface,
+            'prn': packet_handler,
+            'stop_filter': lambda x: not self.running
+        })
+        sniff_thread.start()
+        
+        # Display real-time results
+        while self.running:
+            os.system('clear')
+            self.display_ap_table()
+            print(f"\n{Fore.YELLOW}Scanning for {int(time.time()-start_time)}s... Ctrl+C to stop{Style.RESET_ALL}")
+            time.sleep(1)
+        
+        sniff_thread.join()
+        self.display_ap_table()
+        self.attack_menu()
+    
+    # [Rest of your methods (attack_menu, deauth_attack, etc.) remain unchanged...]
 
 if __name__ == "__main__":
     # Verify root privileges
@@ -197,3 +203,5 @@ if __name__ == "__main__":
         print(f"{Fore.RED}[!] Error: {e}{Style.RESET_ALL}")
         tool.reset_interface()
         sys.exit(1)
+    finally:
+        tool.reset_interface()
